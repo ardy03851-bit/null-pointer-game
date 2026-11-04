@@ -330,7 +330,7 @@ var NP = window.NP || (window.NP = {});
   ];
 
   function runBoot() {
-    let li = 0, ci = 0;
+    let li = 0;
     bootLog.textContent = '';
     const iv = setInterval(() => {
       if (li >= BOOT_LINES.length) {
@@ -342,18 +342,14 @@ var NP = window.NP || (window.NP = {});
         bootLog.appendChild(ghost);
         setTimeout(() => {
           titleBlock.classList.remove('hidden');
-        }, 700);
+        }, 500);
         return;
       }
-      const line = BOOT_LINES[li];
-      if (ci === 0) {
-        const div = document.createElement('div');
-        bootLog.appendChild(div);
-      }
-      ci += 2;
-      if (ci >= line.length) { li++; ci = 0; }
-      bootLog.lastChild.textContent = line.slice(0, ci) + (ci < line.length ? '▌' : '');
-    }, 16);
+      const div = document.createElement('div');
+      div.textContent = BOOT_LINES[li];
+      bootLog.appendChild(div);
+      li++;
+    }, 150);
   }
 
   function startGame() {
