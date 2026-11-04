@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#04070c" />
+  <title>NULL POINTER</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2304070c'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='12' fill='%237ce8d5' text-anchor='middle'%3E%40%3C/text%3E%3C/svg%3E" />
+  <meta name="description" content="An ASCII horror exploration game inside a corrupted program." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="game" aria-label="NULL POINTER game viewport"></canvas>
+
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="hidden">
+    <div id="hud-top-left">
+      <div id="sector">.TEXT</div>
+      <div id="integrity">MEM INTEGRITY <span id="integrity-val">100.0</span>%</div>
+      <div id="frag-counter">FRAGMENTS 0/4</div>
+    </div>
+    <div id="log"></div>
+    <div id="fps"></div>
+    <div id="prompt" class="hidden"></div>
+  </div>
+
+  <!-- ============ Touch controls ============ -->
+  <div id="touch-ui" class="hidden">
+    <div id="joystick-zone"></div>
+    <div id="joystick-base"></div>
+    <div id="joystick-knob"></div>
+    <button id="interact-btn" class="hidden" aria-label="Interact">EXEC<br/>[E]</button>
+  </div>
+
+  <!-- ============ Boot / title screen ============ -->
+  <div id="title-screen">
+    <div id="boot-log"></div>
+    <div id="title-block" class="hidden">
+      <h1 id="title">NULL<span class="dim">_</span>POINTER</h1>
+      <p class="subtitle">an exploration of corrupted memory</p>
+      <p class="version">v0.1.0 — feel test build</p>
+      <button id="start-btn">[ INITIALIZE ]</button>
+      <p class="controls-hint">
+        WASD / arrows to move &nbsp;·&nbsp; E to interact<br/>
+        touch: left thumb to move, tap EXEC to interact
+      </p>
+      <p class="tiny-warn">wear headphones. it is quieter than you think.</p>
+    </div>
+  </div>
+
+  <!-- ============ Ending overlay ============ -->
+  <div id="end-screen" class="hidden">
+    <pre id="end-text"></pre>
+    <button id="restart-btn">[ REINITIALIZE ]</button>
+  </div>
+
+  <script src="js/world.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

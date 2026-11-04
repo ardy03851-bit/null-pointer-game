@@ -1,0 +1,338 @@
+/* ============================================================
+   NULL POINTER — styles
+   Everything is dark terminal phosphor. The world is the UI.
+   ============================================================ */
+
+:root {
+  --bg: #04070c;
+  --ink: #9fb8c4;        /* main phosphor */
+  --ink-dim: #44555f;
+  --ink-faint: #232e36;
+  --accent: #7ce8d5;     /* teal terminal accent */
+  --warn: #e8a34c;       /* amber */
+  --danger: #c4455e;     /* corrupted red */
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+
+/* the scanline / vignette treatment sits over everything */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background:
+    radial-gradient(ellipse at center,
+      transparent 55%,
+      rgba(0, 0, 0, 0.28) 82%,
+      rgba(0, 0, 0, 0.62) 100%),
+    repeating-linear-gradient(0deg,
+      transparent 0px, transparent 2px,
+      rgba(0, 0, 0, 0.10) 3px, rgba(0, 0, 0, 0.10) 4px);
+  mix-blend-mode: multiply;
+}
+
+canvas#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.hidden { display: none !important; }
+
+/* ============ HUD ============ */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  font-size: 13px;
+  line-height: 1.55;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  padding:
+    calc(10px + env(safe-area-inset-top))
+    calc(14px + env(safe-area-inset-right))
+    calc(10px + env(safe-area-inset-bottom))
+    calc(14px + env(safe-area-inset-left));
+}
+
+#hud-top-left {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(14px + env(safe-area-inset-left));
+}
+
+#sector {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+#integrity { color: var(--ink-dim); }
+#integrity.warning { color: var(--warn); }
+#integrity.critical { color: var(--danger); }
+#frag-counter { color: var(--warn); }
+
+#log {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  max-width: 44vw;
+  text-align: right;
+}
+
+#log .line {
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+}
+#log .line .caret {
+  color: var(--accent);
+  animation: blink 1.06s steps(1) infinite;
+}
+#log .line.old-1 { opacity: 0.75; }
+#log .line.old-2 { opacity: 0.5; }
+#log .line.old-3 { opacity: 0.3; }
+#log .line.old-4 { opacity: 0.15; }
+#log .line.disturbed { color: var(--danger); }
+
+@keyframes blink { 50% { opacity: 0; } }
+
+#fps {
+  position: absolute;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  right: calc(14px + env(safe-area-inset-right));
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+#prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 18vh;
+  transform: translateX(-50%);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 12px rgba(124, 232, 213, 0.35);
+  animation: promptpulse 1.4s ease-in-out infinite;
+  white-space: nowrap;
+}
+
+@keyframes promptpulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ============ Touch controls ============ */
+
+#touch-ui {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+#joystick-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 52%;
+  height: 62%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#joystick-base, #joystick-knob {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+#joystick-base {
+  width: 108px;
+  height: 108px;
+  border: 1px solid rgba(159, 184, 196, 0.28);
+  background: rgba(159, 184, 196, 0.04);
+}
+
+#joystick-knob {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(124, 232, 213, 0.5);
+  background: rgba(124, 232, 213, 0.12);
+}
+
+#joystick-base.visible, #joystick-knob.visible { opacity: 1; }
+
+#interact-btn {
+  position: absolute;
+  right: calc(22px + env(safe-area-inset-right));
+  bottom: calc(26px + env(safe-area-inset-bottom));
+  min-width: 84px;
+  min-height: 84px;
+  padding: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(124, 232, 213, 0.55);
+  background: rgba(10, 20, 26, 0.6);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  pointer-events: auto;
+  touch-action: manipulation;
+  text-shadow: 0 0 10px rgba(124, 232, 213, 0.4);
+  -webkit-tap-highlight-color: transparent;
+}
+
+#interact-btn:active {
+  background: rgba(124, 232, 213, 0.18);
+}
+
+/* ============ Title / boot screen ============ */
+
+#title-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 24px;
+  text-align: center;
+}
+
+#boot-log {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top));
+  left: calc(18px + env(safe-area-inset-left));
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  max-width: min(92vw, 620px);
+}
+
+#title-block { max-width: 92vw; }
+
+#title {
+  font-size: clamp(2.2rem, 9vw, 5rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-shadow: 0 0 22px rgba(124, 232, 213, 0.25);
+}
+
+#title .dim { color: var(--ink-dim); }
+
+.subtitle {
+  margin-top: 10px;
+  color: var(--ink-dim);
+  font-size: clamp(0.8rem, 2.6vw, 1rem);
+  letter-spacing: 0.14em;
+}
+
+.version {
+  margin-top: 4px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+#start-btn, #restart-btn {
+  margin-top: 34px;
+  padding: 14px 34px;
+  background: transparent;
+  border: 1px solid rgba(124, 232, 213, 0.5);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 180ms ease, box-shadow 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#start-btn:hover, #start-btn:active,
+#restart-btn:hover, #restart-btn:active {
+  background: rgba(124, 232, 213, 0.12);
+  box-shadow: 0 0 24px rgba(124, 232, 213, 0.18);
+}
+
+.controls-hint {
+  margin-top: 26px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.9;
+  letter-spacing: 0.06em;
+}
+
+.tiny-warn {
+  margin-top: 18px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+/* ============ End screen ============ */
+
+#end-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(2, 4, 8, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+#end-text {
+  font-family: var(--font-mono);
+  color: var(--ink);
+  font-size: clamp(0.85rem, 2.8vw, 1.05rem);
+  line-height: 2;
+  white-space: pre-wrap;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 14px rgba(196, 69, 94, 0.25);
+}
+
+/* Reduced motion: kill the pulses, keep the game playable */
+@media (prefers-reduced-motion: reduce) {
+  #prompt, #title, .caret { animation: none; }
+  body::after { background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%); }
+}
