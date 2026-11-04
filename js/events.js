@@ -1,9 +1,10 @@
 /* ============================================================
-   NULL POINTER — events.js
-   The horror director. No jumpscares — only wrongness.
-   A timeline of small events keyed to time survived and
-   fragments recovered, plus ambient random whispers, watcher
-   sightings, and glitches that scale with dread level.
+   NULL POINTER — events.js (v2)
+   The horror director. No exposition, no corny lines. Only
+   things that happen: whispers, glyph corruption, the figure,
+   the echo of you, the corridor that is longer than it is.
+   System logs, when they appear, are technical and cold —
+   the wrongness is in what they report, not in narration.
    ============================================================ */
 
 var NP = window.NP || (window.NP = {});
@@ -13,116 +14,85 @@ var NP = window.NP || (window.NP = {});
 
   function Director(game) {
     this.game = game;
-    this.t = 0;                 // seconds since run start
-    this.dread = 0;             // 0..1 overall wrongness
-    this.nextAmbient = 14;      // next ambient whisper time
-    this.nextWatcher = 26;      // next watcher sighting time
+    this.t = 0;
+    this.dread = 0;
+    this.nextAmbient = 12;
+    this.nextWatcher = 30;
     this.watcherCooldown = 0;
-    this.firedLog = new Set();
+    this.fired = new Set();
   }
 
   Director.prototype.update = function (dt) {
     const g = this.game;
     this.t += dt;
 
-    // dread rises with fragments and time (slowly)
-    const targetDread = Math.min(1, g.fragmentsTaken * 0.22 + this.t / 900);
+    const targetDread = Math.min(1, g.fragmentsTaken * 0.2 + this.t / 700);
     this.dread += (targetDread - this.dread) * dt * 0.2;
 
-    // ---------- one-shot scripted beats ----------
-    this.beat(20, () => {
-      g.log('process watcher attached', true);
-      NP.Audio.hum(0.6);
-    });
-    this.beat(75, () => g.log('there are 4 fragments. there were 4 others', true));
-    this.beat(150, () => g.log('you have been here before', true));
-
-    // fragment-driven beats
-    if (g.fragmentsTaken >= 1 && !this.firedLog.has('f1')) {
-      this.firedLog.add('f1');
-      g.renderer.flashLight();
-      g.lightFlicker = 0.6;
-      NP.Audio.glitchSting(0.5);
-      g.log('memory integrity compromised', true);
+    // ---- ghost activates after the second fragment ----
+    if (g.fragmentsTaken >= 2 && !g.ghost.active) {
+      g.ghost.active = true;
     }
-    if (g.fragmentsTaken >= 2 && !this.firedLog.has('f2')) {
-      this.firedLog.add('f2');
-      g.renderer.corrupt(0.35);
+
+    // ---- sentinel escalation ----
+    if (g.fragmentsTaken >= 3 && g.sentinels.length < 5 && !this.fired.has('escalate')) {
+      this.fired.add('escalate');
+      g.addSentinel();
+      g.addSentinel();
+      g.renderer.corrupt(0.4);
       NP.Audio.hum(1.2);
-    }
-    if (g.fragmentsTaken >= 3 && !this.firedLog.has('f3')) {
-      this.firedLog.add('f3');
-      g.playerFlicker = 6.5; // '@' flickers to '&' for a while
-      g.log('who is typing', true);
-    }
-    if (g.fragmentsTaken >= 4 && !this.firedLog.has('f4')) {
-      this.firedLog.add('f4');
-      // a ghost of you remains at the spawn room
-      g.ghost = { x: g.world.spawn.x, y: g.world.spawn.y, active: true };
-      g.renderer.corrupt(0.5);
-      g.log('exit node stabilized. it is watching you leave', true);
+      g.log('ERR: handler table grown', true);
     }
 
-    // ---------- ambient cadence ----------
+    // ---- ambient cadence ----
     if (this.t > this.nextAmbient) {
-      this.nextAmbient = this.t + (24 + Math.random() * 40) / (0.6 + this.dread);
+      this.nextAmbient = this.t + (22 + Math.random() * 38) / (0.6 + this.dread);
       NP.Audio.whisper();
-      // sometimes a faint glitch accompanies it
       if (Math.random() < 0.4 + this.dread * 0.4) {
         g.renderer.corrupt(0.08 + Math.random() * 0.12);
       }
     }
 
-    // small random screen shiver, more often as dread rises
-    if (Math.random() < dt * (0.01 + this.dread * 0.06)) {
+    // ---- random screen shiver ----
+    if (Math.random() < dt * (0.012 + this.dread * 0.07)) {
       g.renderer.corrupt(0.05 + Math.random() * 0.15 * (0.5 + this.dread));
     }
 
-    // ---------- the watcher ----------
+    // ---- rare cold log lines (technical, never narrative) ----
+    const LINES = [
+      'SIGSEGV: address 0x0000 not mapped',
+      'ERR: handler 0x07 returned twice',
+      'checkpoint delta: -0x02',
+      'WARN: pointer 0x1f aliases user',
+      'watcher.pid = 1',
+      'ERR: clock read 00:00 twice',
+    ];
+    if (Math.random() < dt * 0.006 + this.dread * dt * 0.01) {
+      g.log(LINES[Math.floor(Math.random() * LINES.length)], Math.random() < 0.4);
+    }
+
+    // ---- the watcher ----
     this.watcherCooldown -= dt;
     if (this.t > this.nextWatcher && this.watcherCooldown <= 0) {
-      this.nextWatcher = this.t + 40 + Math.random() * 50;
+      this.nextWatcher = this.t + 45 + Math.random() * 55;
       this.spawnWatcher();
     }
-    const w = g.watcher;
-    if (w.active) {
-      const d = Math.hypot(w.x - g.player.x, w.y - g.player.y);
-      w.life -= dt;
-      // vanishes when approached, or after lingering unseen
-      if (d < 4.5 || w.life <= 0) {
-        w.active = false;
-        this.watcherCooldown = 12;
-        if (d < 4.5) {
-          // silent disappearance + a whisper, no sting
-          NP.Audio.whisper();
-          g.log('signal lost', true);
-        }
-      }
-    }
+    NP.Entities.updateWatcher(g, dt);
 
-    // ghost interaction: seeing your own residue up close
-    if (g.ghost && g.ghost.active) {
-      const d = Math.hypot(g.ghost.x - g.player.x, g.ghost.y - g.player.y);
-      if (d < 2.2) {
-        g.ghost.active = false;
-        NP.Audio.whisper();
-        g.log('it was you', true);
-      }
-    }
-  };
-
-  Director.prototype.beat = function (time, fn) {
-    const key = 't' + time;
-    if (this.t >= time && !this.firedLog.has(key)) {
-      this.firedLog.add(key);
-      fn();
+    // ---- loop corridor: it happens, nothing explains it ----
+    const lc = g.world.loopCorridor;
+    if (lc && !lc.used && g.player.x > lc.x0 + 10 && g.player.y > lc.y - 0.5 && g.player.y < lc.y + 2.5) {
+      lc.used = true;
+      g.player.x = lc.x0 + 1.5;
+      g.player.vx = 0;
+      g.renderer.corrupt(0.25);
+      NP.Audio.whisper();
     }
   };
 
   Director.prototype.spawnWatcher = function () {
     const g = this.game;
     const p = g.player;
-    // stand it in a dark corridor 9-14 cells away, roughly ahead of the player
     for (let tries = 0; tries < 40; tries++) {
       const ang = Math.random() * Math.PI * 2;
       const dist = 9 + Math.random() * 5;
@@ -130,8 +100,7 @@ var NP = window.NP || (window.NP = {});
       const y = Math.round(p.y + Math.sin(ang) * dist) + 0.5;
       if (x < 1 || y < 1 || x > g.world.W - 2 || y > g.world.H - 2) continue;
       if (g.world.solidAt(x, y)) continue;
-      // don't spawn inside a room with the player; prefer corridors — any floor works
-      g.watcher = { x, y, active: true, life: 9 + Math.random() * 8 };
+      g.watcher = { x, y, active: true, life: 10 + Math.random() * 8 };
       NP.Audio.hum(0.8);
       return;
     }

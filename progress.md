@@ -13,18 +13,47 @@ Original prompt: "code a new repository, it's a Web game. index.html and pages. 
 - iPad: pointer events, floating joystick (left 52% of screen), contextual EXEC button, safe-area insets, gesture/zoom blocking
 - Tested end-to-end with Playwright (desktop 1280x800 + iPad emulation 1180x820 touch): boot→start→move→pickups→ending→restart, zero console errors; joystick hold/release verified via CDP touch events
 
-## Known gaps / TODO (deliberate, v0.1 scope)
+## v0.2 status — COMPLETE
+
+Everything below ships on top of v0.1:
+
+- **WebGL2 post-processing** (js/gl.js): offscreen scene → bright pass (¼ res) → separable blur → composite shader with barrel distortion, chromatic aberration, glitch bands, up to 4 radial shockwaves (fragment pickups, sentinel hits), bloom, scanlines, grain, vignette + heartbeat pulse, damage flash, dread color grade. Graceful 2D fallback if no WebGL2.
+- **Sentinels** (js/entities.js): patrol (2.6 t/s) → line-of-sight chase (9.4 t/s) with movement lead, give-up timer 4.5s, catch < 0.75 → hit (−12 integrity, knockback, damage flash, shockwave), stun + respawn at post, afterimage trail. Walk 7.6 < chase 9.4 < sprint 11.8 — juke, sprint, or hide. Director escalates +2 sentinels at 3 fragments.
+- **Sprint + stamina**: Shift (or joystick edge) → 11.8 t/s, stamina 100 draining 27/s, regen 16/s after 0.7s pause; ASCII gauge bottom-left. Light radius widens when sprinting (12.5), collapses in null zones (5.2).
+- **Null zones**: 4 dark pockets — sentinels refuse to path in, whispers, faster integrity bleed, hiding works (verified: sentinel disengages).
+- **Ghost**: player path recorded at 10Hz; after 2 fragments, replayed 13s delayed as faint `@` with dissolve static when you approach it (< 4.5).
+- **Watcher**: spawns every 45–100s, mirrors your movement (opposite x), vanishes when close.
+- **World**: 39 rooms, 168×96, 2-wide corridors, sevens room (red 7s), 5 data rivers (flowing digit streams), loop corridor that teleports you back once.
+- **Crash flow**: integrity ≤ 0 → SEGFAULT core-dump screen (register dump, "faulting page: yours") with generated backdrop; [REBOOT] restarts.
+- **Ending**: cold technical text — "process 0x0002 remains resident. it has your path." HUD hidden during ending/crash.
+- **Audio**: layered bed drone + dread cluster (setTargetAtTime), chase layer + tick, heartbeat thump synced to vignette pulse, FM metallic hit, ring-mod whisper, pickup noise-sweep whoosh, dissolve.
+- **Assets**: AI-generated backdrops (title / crash / end), dark + low opacity behind text.
+- **Boot**: BIOS-style lines, red "user 0x0001: not found", title reveals after.
+- **Testing hooks preserved**: window.render_game_to_text(), window.advanceTime(ms), window.__gameGet().
+
+### v0.2 bugs fixed during test
+
+- `const NP` redeclared across plain scripts → SyntaxError (back to `var`)
+- `#title-block` had a leftover `hidden` class
+- Director referenced `g.renderer` before it was attached (now set in startGame)
+- HUD stayed visible behind the end screen (now hidden on ending)
+
+### Verified with Playwright (SwiftShader headless)
+
+Boot→title→start, walk/sprint/stamina, fragment pickup (E + touch EXEC), sentinel patrol→chase→catch→stun→crash→reboot, null-zone hiding, ghost replay, watcher, full ending + restart, iPad touch joystick (edge = sprint) + release, interact button visibility/collection, zero console errors.
+
+## Known gaps / TODO
 
 - No puzzle depth yet — fragments are simple pickups
-- Watcher has one behavior only (stand + vanish)
+- Watcher has one behavior only (mirror + vanish)
 - No settings screen (mute is M key, undocumented on touch — add a small mute button)
-- World layout is one static seed per run; no meta-progression between runs
-- Ending text is fixed; no variation
+- Ending text is fixed; no variation between runs
+- Headless screenshots of end/crash screens hang Playwright's stability wait (GPU-bound rAF); use CDP Page.captureScreenshot
 
 ## Next steps for edits
 
 - All files are plain script tags (no modules) so index.html works via file:// — keep it that way
-- Renderer: `renderer.corrupt(severity)` for glitch bursts, `renderer.flashLight()` for light loss
-- Director beats are keyed on time/fragment counts in js/events.js — the place to add new scares
+- Renderer: `renderer.corrupt(severity)`; PostFX: `postfx.addWave(x, y, strength)`, shaderState = {glitch, damage, dread, chase, pulse, bloomBoost}
+- Director beats keyed on time/fragment counts in js/events.js — the place to add new scares
 - World gen: js/world.js `generate(seed)`; zone palettes in ZONES; spawn/fragments/exit placement at bottom
 - Testing hooks: window.render_game_to_text(), window.advanceTime(ms), window.__gameGet()

@@ -1,7 +1,10 @@
 /* ============================================================
    NULL POINTER — world.js
-   Procedural generation of a "corrupted program" interior.
-   Grid of cells; each cell holds a base glyph + a zone id.
+   Procedural interior of a corrupted program. v2:
+   - larger world, wide arteries (2 cells) for fast movement
+   - set-pieces: the sevens room, null zones (dark whisper
+     pockets sentinels refuse to enter), data rivers,
+     one corridor that is longer than it should be
    ============================================================ */
 
 var NP = window.NP || (window.NP = {});
@@ -14,7 +17,6 @@ var NP = window.NP || (window.NP = {});
   const DOOR = '+';
   const EXIT = '$';
 
-  // Zone palettes: .TEXT (cool calm) → .DATA (amber tension) → .NULL (dead red)
   const ZONES = [
     { name: '.TEXT', wall: [96, 132, 148], floor: [42, 58, 68] },
     { name: '.DATA', wall: [148, 122, 82], floor: [66, 52, 32] },
@@ -31,50 +33,50 @@ var NP = window.NP || (window.NP = {});
     };
   }
 
-  /**
-   * Build the world.
-   * Layout: rooms + connecting corridors carved out of solid rock.
-   * Rooms cluster toward three zone anchors (west/centre/east).
-   */
   function generate(seed) {
     const rnd = mulberry32(seed || 1337);
-    const W = 132, H = 84;
+    const W = 168, H = 96;
 
-    // 0 = solid, 1 = floor
     const solid = new Uint8Array(W * H).fill(1);
     const idx = (x, y) => y * W + x;
-
     const rooms = [];
 
     function placeRoom(x, y, w, h) {
-      for (let ry = y; ry < y + h; ry++) {
-        for (let rx = x; rx < x + w; rx++) {
+      for (let ry = y; ry < y + h; ry++)
+        for (let rx = x; rx < x + w; rx++)
           if (rx > 0 && ry > 0 && rx < W - 1 && ry < H - 1) solid[idx(rx, ry)] = 0;
-        }
-      }
-      rooms.push({ x, y, w, h, cx: Math.floor(x + w / 2), cy: Math.floor(y + h / 2) });
+      rooms.push({ x, y, w, h, cx: Math.floor(x + w / 2), cy: Math.floor(y + h / 2), zone: -1 });
     }
 
-    // Three zone anchors; rooms scattered around each
     const anchors = [
-      { x: 0.14, y: 0.5 }, { x: 0.5, y: 0.45 }, { x: 0.86, y: 0.55 },
+      { x: 0.12, y: 0.5 }, { x: 0.5, y: 0.42 }, { x: 0.88, y: 0.58 },
     ];
-    const PER_ZONE = 9;
+    const PER_ZONE = 13;
+
+    function carve(x, y) {
+      if (x > 0 && y > 0 && x < W - 1 && y < H - 1) solid[idx(x, y)] = 0;
+    }
+
+    // wide corridor: carve 2-wide
+    function carveCorridor(x1, y1, x2, y2, wide) {
+      let x = x1, y = y1;
+      const stepX = () => { while (x !== x2) { x += x < x2 ? 1 : -1; carve(x, y); if (wide) carve(x, y + 1); } };
+      const stepY = () => { while (y !== y2) { y += y < y2 ? 1 : -1; carve(x, y); if (wide) carve(x + 1, y); } };
+      if (rnd() < 0.5) { stepX(); stepY(); } else { stepY(); stepX(); }
+    }
 
     for (let a = 0; a < anchors.length; a++) {
       const ax = anchors[a].x * W, ay = anchors[a].y * H;
       let last = null;
       for (let i = 0; i < PER_ZONE; i++) {
         let placed = false, tries = 0;
-        while (!placed && tries < 60) {
+        while (!placed && tries < 90) {
           tries++;
-          const w = 7 + Math.floor(rnd() * 9);
-          const h = 5 + Math.floor(rnd() * 7);
-          const x = Math.floor(ax + (rnd() - 0.5) * W * 0.34);
-          const y = Math.floor(ay + (rnd() - 0.5) * H * 0.34);
+          const w = 8 + Math.floor(rnd() * 11);
+          const h = 6 + Math.floor(rnd() * 8);
+          const x = Math.floor(ax + (rnd() - 0.5) * W * 0.36);
+          const y = Math.floor(ay + (rnd() - 0.5) * H * 0.38);
           if (x < 2 || y < 2 || x + w > W - 2 || y + h > H - 2) continue;
-
-          // overlap check (with 2-cell gap)
           let overlap = false;
           for (const r of rooms) {
             if (x < r.x + r.w + 2 && x + w + 2 > r.x && y < r.y + r.h + 2 && y + h + 2 > r.y) {
@@ -82,66 +84,39 @@ var NP = window.NP || (window.NP = {});
             }
           }
           if (overlap) continue;
-
           placeRoom(x, y, w, h);
-          placed = true;
           const room = rooms[rooms.length - 1];
           room.zone = a;
-          // connect to previous room in this zone with an L corridor
-          if (last) {
-            carveCorridor(room.cx, room.cy, last.cx, last.cy);
-          } else if (rooms.length > 1) {
-            // connect first room of the zone to a random earlier room (cross-zone link)
+          if (last) carveCorridor(room.cx, room.cy, last.cx, last.cy, rnd() < 0.55);
+          else if (rooms.length > 1) {
             const other = rooms[Math.floor(rnd() * (rooms.length - 1))];
-            carveCorridor(room.cx, room.cy, other.cx, other.cy);
+            carveCorridor(room.cx, room.cy, other.cx, other.cy, true); // cross-zone links are always wide
           }
           last = room;
         }
       }
     }
 
-    function carveCorridor(x1, y1, x2, y2) {
-      let x = x1, y = y1;
-      const horizFirst = rnd() < 0.5;
-      function stepToward(tx, ty) {
-        // drunk walk so corridors aren't always perfect L shapes
-        while (x !== tx) {
-          x += x < tx ? 1 : -1;
-          carve(x, y);
-        }
-        while (y !== ty) {
-          y += y < ty ? 1 : -1;
-          carve(x, y);
-        }
-      }
-      if (horizFirst) { stepToward(x2, y); stepToward(x2, y2); }
-      else { stepToward(x, y2); stepToward(x2, y2); }
-    }
-
-    function carve(x, y) {
-      if (x > 0 && y > 0 && x < W - 1 && y < H - 1) solid[idx(x, y)] = 0;
-    }
-
-    // ---- doors: where a corridor meets a room edge, sometimes a '+' ----
+    // ---- doors ----
     const doorGlyphs = new Set();
     for (const r of rooms) {
       for (let rx = r.x; rx < r.x + r.w; rx++) {
         for (const [dx, dy] of [[rx, r.y - 1], [rx, r.y + r.h]]) {
-          if (solid[idx(dx, dy)] === 0 && rnd() < 0.5) doorGlyphs.add(idx(dx, dy));
+          if (solid[idx(dx, dy)] === 0 && rnd() < 0.45) doorGlyphs.add(idx(dx, dy));
         }
       }
       for (let ry = r.y; ry < r.y + r.h; ry++) {
         for (const [dx, dy] of [[r.x - 1, ry], [r.x + r.w, ry]]) {
-          if (solid[idx(dx, dy)] === 0 && rnd() < 0.5) doorGlyphs.add(idx(dx, dy));
+          if (solid[idx(dx, dy)] === 0 && rnd() < 0.45) doorGlyphs.add(idx(dx, dy));
         }
       }
     }
 
-    // ---- cell model ----
-    // glyph codes, one per cell (0 = empty/solid interior)
+    // ---- cells ----
     const cells = new Array(W * H);
     const zoneOf = new Uint8Array(W * H);
-    const decor = new Array(W * H).fill(0); // 1 = residue digit on floor
+    const decor = new Array(W * H).fill(0);   // 1 = residue digit, 2 = sevens-room digit
+    const nullZone = new Uint8Array(W * H);   // 1 = null zone (dark pocket)
 
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -149,54 +124,107 @@ var NP = window.NP || (window.NP = {});
         const z = x < W * 0.34 ? 0 : x < W * 0.66 ? 1 : 2;
         zoneOf[i] = z;
         if (solid[i]) {
-          // solid: only draw a wall glyph if it borders open space (visible face)
           const nearOpen =
             (x > 0 && !solid[i - 1]) || (x < W - 1 && !solid[i + 1]) ||
             (y > 0 && !solid[i - W]) || (y < H - 1 && !solid[i + W]);
           cells[i] = nearOpen ? WALL : null;
         } else {
           cells[i] = doorGlyphs.has(i) ? DOOR : FLOOR;
-          // scattered "data residue" digits on floors (drawn dynamically)
-          if (rnd() < 0.045) decor[i] = 1;
+          if (rnd() < 0.05) decor[i] = 1;
         }
       }
     }
 
-    // ---- spawn, fragments, exit ----
-    // spawn: first room of zone 0 (west)
+    // ---- set-piece: the sevens room ----
+    const sevensRoom = rooms.filter((r) => r.zone === 1)[3];
+    if (sevensRoom) {
+      for (let ry = sevensRoom.y; ry < sevensRoom.y + sevensRoom.h; ry++)
+        for (let rx = sevensRoom.x; rx < sevensRoom.x + sevensRoom.w; rx++)
+          decor[idx(rx, ry)] = 2;
+    }
+
+    // ---- set-piece: null zones (dark pockets) ----
+    const nullZones = [];
+    for (let n = 0; n < 4; n++) {
+      const r = rooms[Math.floor(rnd() * rooms.length)];
+      if (!r || r.zone === 0 && n === 0) continue;
+      const cx = r.cx, cy = r.cy;
+      const rad = 2 + rnd() * 1.5;
+      nullZones.push({ x: cx, y: cy, r: rad });
+      for (let y = Math.floor(cy - rad - 1); y <= Math.ceil(cy + rad + 1); y++) {
+        for (let x = Math.floor(cx - rad - 1); x <= Math.ceil(cx + rad + 1); x++) {
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          if (Math.hypot(x - cx, y - cy) <= rad && !solid[idx(x, y)]) {
+            nullZone[idx(x, y)] = 1;
+          }
+        }
+      }
+    }
+
+    // ---- set-piece: data rivers (long corridors get flowing digit streams) ----
+    const rivers = [];
+    for (let n = 0; n < 5; n++) {
+      // find a long horizontal open run
+      const y = 3 + Math.floor(rnd() * (H - 6));
+      let bestX0 = -1, bestLen = 0, x0 = -1;
+      for (let x = 1; x < W - 1; x++) {
+        if (!solid[idx(x, y)]) { if (x0 < 0) x0 = x; }
+        else { if (x - x0 > bestLen) { bestLen = x - x0; bestX0 = x0; } x0 = -1; }
+      }
+      if (bestLen > 16) rivers.push({ x0: bestX0, x1: bestX0 + bestLen - 1, y, dir: rnd() < 0.5 ? 1 : -1 });
+    }
+
+    // ---- set-piece: the corridor that repeats ----
+    // a wide straight corridor: crossing it eastward teleports you back once
+    let loopCorridor = null;
+    {
+      // find a horizontal 2-wide corridor run in zone 2
+      for (let tries = 0; tries < 300 && !loopCorridor; tries++) {
+        const y = 4 + Math.floor(rnd() * (H - 10));
+        let x0 = -1;
+        for (let x = 2; x < W - 2; x++) {
+          if (!solid[idx(x, y)] && !solid[idx(x, y + 1)]) { if (x0 < 0) x0 = x; }
+          else {
+            if (x - x0 > 14 && x0 > W * 0.6) { loopCorridor = { x0, x1: x - 1, y, used: false }; break; }
+            x0 = -1;
+          }
+        }
+      }
+    }
+
+    // ---- spawn / fragments / exit ----
     const spawnRoom = rooms.find((r) => r.zone === 0);
     const spawn = { x: spawnRoom.cx + 0.5, y: spawnRoom.cy + 0.5 };
 
-    // fragments: one room per zone, spread out, not the spawn room
     const fragRooms = [];
-    for (let z = 1; z <= 2; z++) {
-      const candidates = rooms.filter((r) => r.zone === z && r !== spawnRoom);
-      fragRooms.push(candidates[Math.floor(rnd() * candidates.length)]);
+    const used = new Set([spawnRoom]);
+    function pickRoom(zone, farFrom) {
+      const cands = rooms.filter((r) => r.zone === zone && !used.has(r));
+      if (!cands.length) return null;
+      cands.sort((a, b) => dist2(b, farFrom) - dist2(a, farFrom));
+      const pick = cands[Math.floor(rnd() * Math.min(3, cands.length))];
+      used.add(pick);
+      return pick;
     }
-    // one more in zone 0 but far from spawn
-    const far0 = rooms
-      .filter((r) => r.zone === 0 && r !== spawnRoom)
-      .sort((a, b) => dist2(b, spawnRoom) - dist2(a, spawnRoom))[0];
-    fragRooms.push(far0);
-    // and one in zone 1
-    const candidates1 = rooms.filter((r) => r.zone === 1 && !fragRooms.includes(r));
-    fragRooms.push(candidates1[Math.floor(rnd() * candidates1.length)]);
+    for (const r of [pickRoom(2, spawnRoom), pickRoom(1, spawnRoom), pickRoom(0, spawnRoom), pickRoom(1, spawnRoom)]) {
+      if (r) fragRooms.push(r);
+    }
+    while (fragRooms.length < 4) fragRooms.push(rooms[rooms.length - fragRooms.length]);
 
     const fragments = fragRooms.map((r, i) => ({
-      id: i,
-      x: r.cx + 0.5,
-      y: r.cy + 0.5,
-      taken: false,
-      flicker: rnd() * 10,
+      id: i, x: r.cx + 0.5, y: r.cy + 0.5, taken: false, flicker: rnd() * 10,
     }));
 
-    // exit: farthest room from spawn overall
-    const exitRoom = rooms
-      .slice()
-      .sort((a, b) => dist2(b, spawnRoom) - dist2(a, spawnRoom))[0];
+    const exitRoom = rooms.slice().sort((a, b) => dist2(b, spawnRoom) - dist2(a, spawnRoom))[0];
     const exit = { x: exitRoom.cx + 0.5, y: exitRoom.cy + 0.5 };
-    // mark exit glyph on the cell map (drawn dynamically too, but keep map truth)
     cells[idx(exitRoom.cx, exitRoom.cy)] = EXIT;
+
+    // ---- sentinel posts ----
+    const sentinelPosts = [];
+    for (let i = 0; i < 3; i++) {
+      const r = rooms.filter((r) => r.zone === 1 + (i % 2) && r !== spawnRoom && !fragRooms.includes(r))[0];
+      if (r) sentinelPosts.push({ x: r.cx + 0.5, y: r.cy + 0.5 });
+    }
 
     function dist2(a, b) {
       const dx = a.cx - b.cx, dy = a.cy - b.cy;
@@ -204,12 +232,25 @@ var NP = window.NP || (window.NP = {});
     }
 
     return {
-      W, H, cells, zoneOf, decor, idx,
-      rooms, fragments, exit, spawn,
+      W, H, cells, zoneOf, decor, nullZone, idx, rivers, loopCorridor, nullZones,
+      rooms, fragments, exit, spawn, sentinelPosts,
       solidAt(x, y) {
         const xi = Math.floor(x), yi = Math.floor(y);
         if (xi < 0 || yi < 0 || xi >= W || yi >= H) return true;
         return solid[idx(xi, yi)] === 1;
+      },
+      lineOfSight(x1, y1, x2, y2) {
+        const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1) * 2);
+        for (let i = 1; i < steps; i++) {
+          const t = i / steps;
+          if (this.solidAt(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)) return false;
+        }
+        return true;
+      },
+      inNullZone(x, y) {
+        const xi = Math.floor(x), yi = Math.floor(y);
+        if (xi < 0 || yi < 0 || xi >= W || yi >= H) return false;
+        return nullZone[idx(xi, yi)] === 1;
       },
       zoneAt(x, y) {
         const xi = Math.max(0, Math.min(W - 1, Math.floor(x)));

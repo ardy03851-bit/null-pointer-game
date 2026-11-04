@@ -1,16 +1,16 @@
 /* ============================================================
-   NULL POINTER — styles
-   Everything is dark terminal phosphor. The world is the UI.
+   NULL POINTER — styles (v2)
+   Dark terminal phosphor. The world is the UI.
    ============================================================ */
 
 :root {
   --bg: #04070c;
-  --ink: #9fb8c4;        /* main phosphor */
-  --ink-dim: #7d97a5;    /* secondary text — readable on near-black */
-  --ink-faint: #66808f;  /* tertiary text — still above 4.5:1 */
-  --accent: #7ce8d5;     /* teal terminal accent */
-  --warn: #e8a34c;       /* amber */
-  --danger: #c4455e;     /* corrupted red */
+  --ink: #9fb8c4;
+  --ink-dim: #7d97a5;
+  --ink-faint: #66808f;
+  --accent: #7ce8d5;
+  --warn: #e8a34c;
+  --danger: #c4455e;
   --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
 }
 
@@ -29,24 +29,6 @@ html, body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
-}
-
-/* the scanline / vignette treatment sits over everything */
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 50;
-  background:
-    radial-gradient(ellipse at center,
-      transparent 55%,
-      rgba(0, 0, 0, 0.28) 82%,
-      rgba(0, 0, 0, 0.62) 100%),
-    repeating-linear-gradient(0deg,
-      transparent 0px, transparent 2px,
-      rgba(0, 0, 0, 0.10) 3px, rgba(0, 0, 0, 0.10) 4px);
-  mix-blend-mode: multiply;
 }
 
 canvas#game {
@@ -72,11 +54,6 @@ canvas#game {
   line-height: 1.55;
   letter-spacing: 0.04em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  padding:
-    calc(10px + env(safe-area-inset-top))
-    calc(14px + env(safe-area-inset-right))
-    calc(10px + env(safe-area-inset-bottom))
-    calc(14px + env(safe-area-inset-left));
 }
 
 #hud-top-left {
@@ -95,6 +72,16 @@ canvas#game {
 #integrity.warning { color: var(--warn); }
 #integrity.critical { color: var(--danger); }
 #frag-counter { color: var(--warn); }
+
+#stamina {
+  position: absolute;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: calc(14px + env(safe-area-inset-left));
+  color: var(--ink-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+#stamina.empty { color: var(--danger); }
 
 #log {
   position: absolute;
@@ -131,7 +118,7 @@ canvas#game {
 #prompt {
   position: absolute;
   left: 50%;
-  bottom: 18vh;
+  bottom: 16vh;
   transform: translateX(-50%);
   color: var(--accent);
   font-size: 15px;
@@ -227,9 +214,24 @@ canvas#game {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0;
   padding: 24px;
   text-align: center;
+  overflow: hidden;
+}
+
+#title-backdrop {
+  position: absolute;
+  inset: 0;
+  background: url('../assets/img/title-backdrop.png') center / cover no-repeat;
+  opacity: 0.5;
+  pointer-events: none;
+  /* slow drift so the void feels alive */
+  animation: backdrop-drift 40s ease-in-out infinite alternate;
+}
+
+@keyframes backdrop-drift {
+  from { transform: scale(1.02) translate(0, 0); }
+  to { transform: scale(1.06) translate(-1%, -1.5%); }
 }
 
 #boot-log {
@@ -244,7 +246,7 @@ canvas#game {
   max-width: min(92vw, 620px);
 }
 
-#title-block { max-width: 92vw; }
+#title-block { position: relative; max-width: 92vw; }
 
 #title {
   font-size: clamp(2.2rem, 9vw, 5rem);
@@ -270,10 +272,10 @@ canvas#game {
   letter-spacing: 0.1em;
 }
 
-#start-btn, #restart-btn {
+#start-btn, #restart-btn, #reboot-btn {
   margin-top: 34px;
   padding: 14px 34px;
-  background: transparent;
+  background: rgba(4, 7, 12, 0.6);
   border: 1px solid rgba(124, 232, 213, 0.5);
   color: var(--accent);
   font-family: var(--font-mono);
@@ -286,7 +288,8 @@ canvas#game {
 }
 
 #start-btn:hover, #start-btn:active,
-#restart-btn:hover, #restart-btn:active {
+#restart-btn:hover, #restart-btn:active,
+#reboot-btn:hover, #reboot-btn:active {
   background: rgba(124, 232, 213, 0.12);
   box-shadow: 0 0 24px rgba(124, 232, 213, 0.18);
 }
@@ -306,6 +309,41 @@ canvas#game {
   letter-spacing: 0.1em;
 }
 
+/* ============ Crash screen ============ */
+
+#crash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+#crash-backdrop {
+  position: absolute;
+  inset: 0;
+  background: url('../assets/img/crash-backdrop.png') center / cover no-repeat;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+#crash-text {
+  position: relative;
+  font-family: var(--font-mono);
+  color: #e4a9b4;
+  font-size: clamp(0.72rem, 2.2vw, 0.95rem);
+  line-height: 1.9;
+  white-space: pre-wrap;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 14px rgba(196, 69, 94, 0.35);
+  text-align: left;
+}
+
 /* ============ End screen ============ */
 
 #end-screen {
@@ -321,7 +359,16 @@ canvas#game {
   text-align: center;
 }
 
+#end-backdrop {
+  position: absolute;
+  inset: 0;
+  background: url('../assets/img/end-backdrop.png') center / cover no-repeat;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 #end-text {
+  position: relative;
   font-family: var(--font-mono);
   color: var(--ink);
   font-size: clamp(0.85rem, 2.8vw, 1.05rem);
@@ -331,8 +378,9 @@ canvas#game {
   text-shadow: 0 0 14px rgba(196, 69, 94, 0.25);
 }
 
+#restart-btn, #reboot-btn { position: relative; }
+
 /* Reduced motion: kill the pulses, keep the game playable */
 @media (prefers-reduced-motion: reduce) {
-  #prompt, #title, .caret { animation: none; }
-  body::after { background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%); }
+  #prompt, #title, .caret, #title-backdrop { animation: none; }
 }

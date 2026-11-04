@@ -1,10 +1,10 @@
 /* ============================================================
-   NULL POINTER — render.js
-   The ASCII renderer. The world is a grid of characters.
-   Static cells are baked into chunk canvases (cache); dynamic
-   things (player, fragments, watcher, residue flicker) draw
-   on top each frame; then darkness (the light radius) is
-   composited over everything with a radial gradient.
+   NULL POINTER — render.js (v2)
+   Draws the ASCII world into an offscreen 2D canvas (the
+   "scene buffer"), which the WebGL PostFX pipeline then pushes
+   through the shader chain. Adds: flowing data rivers, drifting
+   glyph debris, sentinel afterimages, ghost echo, null-zone
+   darkness, sprint trail.
    ============================================================ */
 
 var NP = window.NP || (window.NP = {});
@@ -12,13 +12,13 @@ var NP = window.NP || (window.NP = {});
 (function () {
   'use strict';
 
-  const CHUNK = 24; // cells per chunk
+  const CHUNK = 24;
 
-  function Renderer(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.cell = 18;         // css px per cell
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function Renderer(sceneCanvas) {
+    this.scene = sceneCanvas;
+    this.ctx = sceneCanvas.getContext('2d');
+    this.cell = 18;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 1.75);
     this.viewW = 0;
     this.viewH = 0;
     this.chunks = new Map();
@@ -26,10 +26,11 @@ var NP = window.NP || (window.NP = {});
     this.camY = 0;
     this.time = 0;
 
-    // glitch state
-    this.glitch = 0;           // 0..1 severity, decays
-    this.rowShifts = [];       // {y, h, dx, life}
-    this.swapCells = [];       // {x, y, ch, life}
+    this.glitch = 0;        // 2D glyph corruption severity
+    this.swapCells = [];
+
+    this.debris = [];       // floating glyph motes
+    this._initDebris();
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -37,24 +38,36 @@ var NP = window.NP || (window.NP = {});
 
   Renderer.prototype._resize = function () {
     const w = window.innerWidth, h = window.innerHeight;
-    // cell size adapts: smaller screens get smaller glyphs but a similar view
     this.cell = Math.max(13, Math.min(22, Math.round(Math.min(w / 64, h / 40))));
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(w * this.dpr);
-    this.canvas.height = Math.round(h * this.dpr);
     this.viewW = w;
     this.viewH = h;
-    this.chunks.clear(); // cell size changed → caches invalid
+    this.scene.width = Math.round(w * this.dpr);
+    this.scene.height = Math.round(h * this.dpr);
+    this.chunks.clear();
   };
 
   Renderer.prototype.resize = function () { this._resize(); };
 
+  Renderer.prototype._initDebris = function () {
+    this.debris = [];
+    for (let i = 0; i < 34; i++) {
+      this.debris.push({
+        x: Math.random() * 200, y: Math.random() * 120,
+        ch: '.,:\';`~*+-'[Math.floor(Math.random() * 11)],
+        speed: 0.15 + Math.random() * 0.3,
+        drift: Math.random() * Math.PI * 2,
+      });
+    }
+  };
+
+  Renderer.prototype._glyphFont = function (px, weight) {
+    return (weight || '') + ' ' + Math.round(px) + 'px "JetBrains Mono", monospace';
+  };
+
   /* ---------------- chunk cache ---------------- */
 
-  Renderer.prototype._chunkKey = function (cx, cy) { return cx + ',' + cy; };
-
   Renderer.prototype._getChunk = function (world, cx, cy) {
-    const key = this._chunkKey(cx, cy);
+    const key = cx + ',' + cy;
     let ch = this.chunks.get(key);
     if (ch) return ch;
 
@@ -78,18 +91,15 @@ var NP = window.NP || (window.NP = {});
         if (!g) continue;
         const zone = world.ZONES[world.zoneOf[i]];
         const col = g === '#' ? zone.wall : g === '.' ? zone.floor : [200, 200, 200];
+        // sevens-room floors glow faintly wrong
+        if (world.decor[i] === 2 && g === '.') col === null;
         c2.fillStyle = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';
         c2.fillText(g, lx * this.cell + this.cell / 2, ly * this.cell + this.cell / 2);
       }
     }
-
     ch = { canvas: cv };
     this.chunks.set(key, ch);
     return ch;
-  };
-
-  Renderer.prototype._glyphFont = function (px, weight) {
-    return (weight || '') + ' ' + Math.round(px) + 'px "JetBrains Mono", monospace';
   };
 
   /* ---------------- main draw ---------------- */
@@ -100,15 +110,16 @@ var NP = window.NP || (window.NP = {});
     const world = game.world;
     const p = game.player;
 
-    // camera: smooth follow, clamped to world bounds
-    const targetX = p.x - this.viewW / this.cell / 2;
-    const targetY = p.y - this.viewH / this.cell / 2;
-    this.camX += (targetX - this.camX) * Math.min(1, dt * 6);
-    this.camY += (targetY - this.camY) * Math.min(1, dt * 6);
-    const maxX = world.W - this.viewW / this.cell;
-    const maxY = world.H - this.viewH / this.cell;
-    this.camX = Math.max(0, Math.min(maxX, this.camX));
-    this.camY = Math.max(0, Math.min(maxY, this.camY));
+    // camera: follow with velocity look-ahead (fast-paced framing)
+    const lookX = p.x + p.vx * 0.28;
+    const lookY = p.y + p.vy * 0.28;
+    const targetX = lookX - this.viewW / this.cell / 2;
+    const targetY = lookY - this.viewH / this.cell / 2;
+    const k = Math.min(1, dt * 7);
+    this.camX += (targetX - this.camX) * k;
+    this.camY += (targetY - this.camY) * k;
+    this.camX = Math.max(0, Math.min(world.W - this.viewW / this.cell, this.camX));
+    this.camY = Math.max(0, Math.min(world.H - this.viewH / this.cell, this.camY));
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = '#04070c';
@@ -120,99 +131,172 @@ var NP = window.NP || (window.NP = {});
     const px0 = Math.floor(this.camX), py0 = Math.floor(this.camY);
     const cols = Math.ceil(this.viewW / cell) + 1;
     const rows = Math.ceil(this.viewH / cell) + 1;
+    const sx = (wx) => wx * cell + offX;
+    const sy = (wy) => wy * cell + offY;
 
-    // ---- static world (chunk cache) ----
+    // ---- static world ----
     ctx.imageSmoothingEnabled = false;
     const c0x = Math.floor(px0 / CHUNK), c0y = Math.floor(py0 / CHUNK);
     const c1x = Math.floor((px0 + cols) / CHUNK), c1y = Math.floor((py0 + rows) / CHUNK);
-    for (let cy = c0y; cy <= c1y; cy++) {
+    for (let cy = c0y; cy <= c1y; cy++)
       for (let cx = c0x; cx <= c1x; cx++) {
         const ch = this._getChunk(world, cx, cy);
-        ctx.drawImage(ch.canvas,
-          (cx * CHUNK) * cell + offX, (cy * CHUNK) * cell + offY,
-          CHUNK * cell, CHUNK * cell);
+        ctx.drawImage(ch.canvas, cx * CHUNK * cell + offX, cy * CHUNK * cell + offY, CHUNK * cell, CHUNK * cell);
       }
-    }
-
-    // ---- dynamic glyph layer ----
-    const sx = (wx) => wx * cell + offX;
-    const sy = (wy) => wy * cell + offY;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // residue digits flicker: a handful of random visible floor cells per frame
+    // ---- data rivers: flowing digits along corridors ----
     ctx.font = this._glyphFont(cell * 0.85);
-    for (let n = 0; n < 7; n++) {
+    for (const river of world.rivers) {
+      if (river.y < py0 - 1 || river.y > py0 + rows + 1) continue;
+      const len = river.x1 - river.x0;
+      const speed = 3.2 * river.dir;
+      for (let n = 0; n < Math.ceil(len / 4); n++) {
+        const t = ((this.time * speed * 0.25 + n * 4) % len + len) % len;
+        const wx = river.x0 + t;
+        if (wx < px0 || wx > px0 + cols) continue;
+        if (world.solidAt(wx, river.y)) continue;
+        const a = 0.10 + 0.08 * Math.sin(this.time * 2 + n);
+        ctx.fillStyle = 'rgba(124,232,213,' + a.toFixed(3) + ')';
+        ctx.fillText(String(Math.floor((this.time * 3 + n * 7) % 10)), sx(wx), sy(river.y + 0.5));
+      }
+    }
+
+    // ---- drifting glyph debris ----
+    ctx.font = this._glyphFont(cell * 0.7);
+    for (const d of this.debris) {
+      d.y -= d.speed * dt;
+      d.x += Math.sin(this.time * 0.4 + d.drift) * 0.08 * dt;
+      const wx = d.x, wy = d.y;
+      if (wx < px0 - 2 || wx > px0 + cols + 2 || wy < py0 - 2 || wy > py0 + rows + 2) {
+        // respawn at bottom of view
+        d.x = px0 + Math.random() * cols;
+        d.y = py0 + rows + 1;
+        continue;
+      }
+      if (world.solidAt(d.x, d.y)) continue;
+      const a = 0.05 + 0.04 * Math.sin(this.time + d.drift);
+      ctx.fillStyle = 'rgba(159,184,196,' + a.toFixed(3) + ')';
+      ctx.fillText(d.ch, sx(d.x), sy(d.y));
+    }
+
+    // ---- residue digit flicker (sevens room shows only 7s) ----
+    ctx.font = this._glyphFont(cell * 0.85);
+    for (let n = 0; n < 9; n++) {
       const wx = px0 + Math.floor(Math.random() * cols);
       const wy = py0 + Math.floor(Math.random() * rows);
       if (wx < 0 || wy < 0 || wx >= world.W || wy >= world.H) continue;
       const i = world.idx(wx, wy);
       if (!world.decor[i]) continue;
       const zone = world.ZONES[world.zoneOf[i]];
-      ctx.fillStyle = 'rgba(' + zone.wall.join(',') + ',0.5)';
-      ctx.fillText(String(Math.floor(Math.random() * 10)), sx(wx + 0.5), sy(wy + 0.5));
+      const isSeven = world.decor[i] === 2;
+      ctx.fillStyle = isSeven
+        ? 'rgba(196,69,94,0.55)'
+        : 'rgba(' + zone.wall.join(',') + ',0.5)';
+      ctx.fillText(isSeven ? '7' : String(Math.floor(Math.random() * 10)), sx(wx + 0.5), sy(wy + 0.5));
     }
 
-    // exit node: '$' pulses in size — bigger than life
+    // ---- exit node ----
     if (!game.exitReached) {
       const pulse = 1.35 + Math.sin(this.time * 2.4) * 0.28;
       ctx.font = this._glyphFont(cell * pulse, '700 ');
-      const i = world.idx(Math.floor(game.world.exit.x), Math.floor(game.world.exit.y));
-      const zone = world.ZONES[world.zoneOf[i]];
-      ctx.fillStyle = game.fragmentsLeft === 0
-        ? 'rgb(124,232,213)'
-        : 'rgb(' + Math.round(zone.wall[0] * 0.7) + ',' + Math.round(zone.wall[1] * 0.7) + ',' + Math.round(zone.wall[2] * 0.7) + ')';
+      ctx.fillStyle = game.fragmentsLeft === 0 ? 'rgb(124,232,213)' : 'rgb(96,110,118)';
       ctx.fillText('$', sx(game.world.exit.x), sy(game.world.exit.y));
     }
 
-    // fragments: '*' pulsing, drawn amber, bigger when near player
+    // ---- fragments ----
     for (const f of game.world.fragments) {
       if (f.taken) continue;
       const d = Math.hypot(f.x - p.x, f.y - p.y);
-      if (d > 26) continue;
+      if (d > 28) continue;
       const s = 0.9 + Math.sin(this.time * 3 + f.flicker) * 0.25 + Math.max(0, (10 - d) * 0.05);
       ctx.font = this._glyphFont(cell * s, '700 ');
       ctx.fillStyle = 'rgb(232,163,76)';
       ctx.fillText('*', sx(f.x), sy(f.y));
     }
 
-    // ghost duplicate (after fragment 4)
+    // ---- sentinels ----
+    for (const s of game.sentinels) {
+      if (s.state === 'stunned' && s.stunTimer < 0) continue;
+      // afterimages
+      ctx.font = this._glyphFont(cell * 0.95, '700 ');
+      for (const t of s.trail) {
+        ctx.fillStyle = 'rgba(196,69,94,' + (t.life * 0.5).toFixed(3) + ')';
+        ctx.fillText('E', sx(t.x), sy(t.y));
+      }
+      const visible = s.state !== 'stunned';
+      if (visible) {
+        const bob = Math.sin(this.time * 6 + s.seed) * 0.06;
+        ctx.font = this._glyphFont(cell * (1.15 + bob), '700 ');
+        ctx.fillStyle = s.state === 'chase' ? 'rgb(228,60,80)' : 'rgb(178,60,78)';
+        ctx.fillText('E', sx(s.x), sy(s.y));
+      } else {
+        // dissolving after a hit
+        ctx.font = this._glyphFont(cell * (1 + Math.random() * 0.3), '700 ');
+        ctx.fillStyle = 'rgba(196,69,94,' + (Math.random() * 0.5).toFixed(3) + ')';
+        ctx.fillText('%', sx(s.x), sy(s.y));
+      }
+    }
+
+    // ---- ghost echo ----
     if (game.ghost && game.ghost.active) {
-      ctx.font = this._glyphFont(cell, '700 ');
-      ctx.fillStyle = 'rgba(159,184,196,0.16)';
-      ctx.fillText('@', sx(game.ghost.x), sy(game.ghost.y));
+      const g = game.ghost;
+      if (g.dissolve > 0) {
+        ctx.font = this._glyphFont(cell * 1.2, '700 ');
+        for (let n = 0; n < 5; n++) {
+          ctx.fillStyle = 'rgba(159,184,196,' + (Math.random() * 0.4 * g.dissolve).toFixed(3) + ')';
+          ctx.fillText('%&@#E'[Math.floor(Math.random() * 5)],
+            sx(g.x + (Math.random() - 0.5) * 2), sy(g.y + (Math.random() - 0.5) * 2));
+        }
+      } else {
+        ctx.font = this._glyphFont(cell, '700 ');
+        ctx.fillStyle = 'rgba(159,184,196,0.20)';
+        ctx.fillText('@', sx(g.x), sy(g.y));
+      }
     }
 
-    // the watcher: faint, at the edge of the light — drawn UNDER darkness below,
-    // then re-drawn faintly over it so it barely bleeds through.
+    // ---- watcher (drawn under and faintly over darkness) ----
     if (game.watcher.active) {
-      const w = game.watcher;
-      ctx.font = this._glyphFont(cell * 1.9, '700 '); // big. looming.
+      ctx.font = this._glyphFont(cell * 1.9, '700 ');
       ctx.fillStyle = 'rgba(150,60,80,0.85)';
-      ctx.fillText('&', sx(w.x), sy(w.y));
+      ctx.fillText('&', sx(game.watcher.x), sy(game.watcher.y));
     }
 
-    // player: '@' — flickers to '&' for single frames late in the game
+    // ---- player ----
     let pGlyph = '@';
-    if (game.playerFlicker > 0 && Math.random() < 0.35) pGlyph = '&';
+    if (game.playerFlicker > 0 && Math.random() < 0.3) pGlyph = '&';
     ctx.font = this._glyphFont(cell, '700 ');
-    ctx.fillStyle = pGlyph === '@' ? 'rgb(220,238,245)' : 'rgb(196,69,94)';
+    ctx.fillStyle = pGlyph === '@' ? 'rgb(225,242,248)' : 'rgb(196,69,94)';
     ctx.fillText(pGlyph, sx(p.x), sy(p.y));
 
-    // player trail: fading ',' ghosts of where you were
+    // ---- trail ----
     ctx.font = this._glyphFont(cell * 0.8);
     for (const t of game.trail) {
-      const a = t.life / 1.6 * 0.28;
+      const a = (t.life / 1.4) * (t.sprint ? 0.4 : 0.26);
       ctx.fillStyle = 'rgba(159,184,196,' + a.toFixed(3) + ')';
       ctx.fillText("'", sx(t.x), sy(t.y));
     }
 
+    // ---- null zones: the light simply isn't there ----
+    for (const nz of world.nullZones) {
+      const cx = sx(nz.x), cy = sy(nz.y);
+      const r = nz.r * cell * 1.4;
+      if (cx < -r || cx > this.viewW + r || cy < -r || cy > this.viewH + r) continue;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, 'rgba(1,2,5,0.92)');
+      grad.addColorStop(0.7, 'rgba(1,2,5,0.7)');
+      grad.addColorStop(1, 'rgba(1,2,5,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+
     // ---- darkness / light ----
     const px = sx(p.x), py = sy(p.y);
-    const r = game.lightRadius * cell;
+    const lr = game.lightRadius * cell;
     const flick = 1 + Math.sin(this.time * 1.7) * 0.015 + (game.lightFlicker > 0 ? Math.random() * 0.35 : 0);
-    const grad = ctx.createRadialGradient(px, py, r * 0.32 * flick, px, py, r * flick);
+    const grad = ctx.createRadialGradient(px, py, lr * 0.30 * flick, px, py, lr * flick);
     grad.addColorStop(0, 'rgba(3,6,12,0)');
     grad.addColorStop(0.55, 'rgba(3,6,12,0.25)');
     grad.addColorStop(0.82, 'rgba(3,6,12,0.78)');
@@ -220,31 +304,25 @@ var NP = window.NP || (window.NP = {});
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
 
-    // subtle teal light tint near the player
-    const tint = ctx.createRadialGradient(px, py, 0, px, py, r * 0.5);
+    // teal light tint near the player
+    const tint = ctx.createRadialGradient(px, py, 0, px, py, lr * 0.5);
     tint.addColorStop(0, 'rgba(124,232,213,0.05)');
     tint.addColorStop(1, 'rgba(124,232,213,0)');
     ctx.fillStyle = tint;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
 
-    // the watcher barely bleeding through the dark
+    // watcher bleeding through the dark
     if (game.watcher.active) {
-      const w = game.watcher;
       ctx.font = this._glyphFont(cell * 1.9, '700 ');
       ctx.fillStyle = 'rgba(150,60,80,0.14)';
-      ctx.fillText('&', sx(w.x), sy(w.y));
+      ctx.fillText('&', sx(game.watcher.x), sy(game.watcher.y));
     }
 
-    // ---- corruption passes ----
-    this._drawSwaps(world, sx, sy, cell, ctx);
-    this._updateGlitch(dt);
-    this._applyRowShifts(ctx);
+    // ---- glyph corruption pass ----
+    this._drawSwaps(world, sx, sy, cell, ctx, dt);
   };
 
-  /* ---------------- glitch machinery ---------------- */
-
-  Renderer.prototype._drawSwaps = function (world, sx, sy, cell, ctx) {
-    // random visible cells briefly show the wrong character
+  Renderer.prototype._drawSwaps = function (world, sx, sy, cell, ctx, dt) {
     if (this.glitch > 0.04 && Math.random() < this.glitch) {
       const wx = Math.floor(this.camX + Math.random() * (this.viewW / cell));
       const wy = Math.floor(this.camY + Math.random() * (this.viewH / cell));
@@ -257,57 +335,14 @@ var NP = window.NP || (window.NP = {});
       const s = this.swapCells[i];
       ctx.fillStyle = 'rgba(196,69,94,0.75)';
       ctx.fillText(s.ch, sx(s.x + 0.5), sy(s.y + 0.5));
-    }
-  };
-
-  Renderer.prototype._updateGlitch = function (dt) {
-    this.glitch = Math.max(0, this.glitch - dt * 1.4);
-
-    for (let i = this.swapCells.length - 1; i >= 0; i--) {
-      const s = this.swapCells[i];
       s.life -= dt;
       if (s.life <= 0) this.swapCells.splice(i, 1);
     }
-    for (let i = this.rowShifts.length - 1; i >= 0; i--) {
-      const r = this.rowShifts[i];
-      r.life -= dt;
-      if (r.life <= 0) this.rowShifts.splice(i, 1);
-    }
+    this.glitch = Math.max(0, this.glitch - dt * 1.4);
   };
 
-  Renderer.prototype._applyRowShifts = function (ctx) {
-    for (const r of this.rowShifts) {
-      const y = r.y * this.dpr;
-      const h = r.h * this.dpr;
-      const dx = r.dx * this.dpr;
-      // copy the band onto itself, offset — reads its own pixels, fine on canvas
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(this.canvas, 0, y, this.canvas.width, h, dx, y, this.canvas.width, h);
-      // red band edge
-      ctx.fillStyle = 'rgba(196,69,94,' + (0.05 * r.life).toFixed(3) + ')';
-      ctx.fillRect(0, y, this.canvas.width, h);
-      ctx.restore();
-    }
-  };
-
-  /** trigger a screen glitch burst of a given severity 0..1 */
   Renderer.prototype.corrupt = function (severity) {
     this.glitch = Math.min(1, this.glitch + severity);
-    const bands = 1 + Math.round(severity * 5);
-    for (let i = 0; i < bands; i++) {
-      const y = Math.random() * this.viewH;
-      this.rowShifts.push({
-        y, h: 8 + Math.random() * 30,
-        dx: (Math.random() - 0.5) * 90 * severity,
-        life: 0.12 + Math.random() * 0.35,
-      });
-    }
-  };
-
-  Renderer.prototype.flashLight = function () {
-    // momentary loss of light — implemented as a strong glitch pulse
-    this.corrupt(0.55);
   };
 
   NP.Renderer = Renderer;

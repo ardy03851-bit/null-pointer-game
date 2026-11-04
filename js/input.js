@@ -105,7 +105,7 @@ var NP = window.NP || (window.NP = {});
       document.addEventListener('dblclick', (e) => e.preventDefault());
     },
 
-    /** keyboard axis folded into the same analog output */
+    /** keyboard axis folded into the same analog output; sprint beyond 0.92 magnitude */
     sampleAxes() {
       let x = this.moveX, y = this.moveY;
       if (this.keys['KeyA'] || this.keys['ArrowLeft']) x = -1;
@@ -114,6 +114,11 @@ var NP = window.NP || (window.NP = {});
       if (this.keys['KeyS'] || this.keys['ArrowDown']) y = 1;
       if (x && y) { const s = 0.7071; x *= s; y *= s; }
       return { x, y };
+    },
+
+    sprinting() {
+      const mag = Math.hypot(this.moveX, this.moveY);
+      return !!(this.keys['ShiftLeft'] || this.keys['ShiftRight'] || mag > 0.92);
     },
 
     /** true once per press of any interact key or the touch button */
